@@ -5,6 +5,7 @@ export type TermConfig = {
   label: string;
   start: Date;
   totalWeeks: number;
+  prelimWeek?: number;
   midtermWeek: number;
   finalsWeek: number;
   // Weeks that are holidays/no class (1-based)
