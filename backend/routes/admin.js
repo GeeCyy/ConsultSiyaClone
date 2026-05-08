@@ -219,6 +219,10 @@ router.post('/blocked-dates', authenticate, authorize('admin'), async (req, res)
     const result = await pool.query(
       `INSERT INTO calendar_overrides (type, date, label, created_by)
        VALUES ('blocked_date', $1, $2, $3)
+       ON CONFLICT (date) DO UPDATE SET
+         type = EXCLUDED.type,
+         label = EXCLUDED.label,
+         created_by = EXCLUDED.created_by
        RETURNING id, type, date::text AS date, week_number, value, label, created_at`,
       [date, label || null, req.user.id]
     );
@@ -248,17 +252,41 @@ router.delete('/blocked-dates/:id', authenticate, authorize('admin'), async (req
 // POST /api/admin/calendar-overrides — generic override create
 router.post('/calendar-overrides', authenticate, authorize('admin'), async (req, res) => {
   const { type, date, week_number, value, label } = req.body;
-  if (!type || !['exam_week', 'mode_override', 'blocked_date'].includes(type)) {
-    return res.status(400).json({ error: 'type must be exam_week, mode_override, or blocked_date.' });
+  if (!type || !['exam_week', 'mode_override', 'blocked_date', 'date_label'].includes(type)) {
+    return res.status(400).json({ error: 'Invalid override type.' });
   }
   try {
     const result = await pool.query(
       `INSERT INTO calendar_overrides (type, date, week_number, value, label, created_by)
        VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (date) DO UPDATE SET
+         type = EXCLUDED.type,
+         week_number = EXCLUDED.week_number,
+         value = EXCLUDED.value,
+         label = EXCLUDED.label,
+         created_by = EXCLUDED.created_by
        RETURNING id, type, date::text AS date, week_number, value, label, created_at`,
       [type, date || null, week_number || null, value || null, label || null, req.user.id]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/calendar-overrides/:id — update override value
+router.patch('/calendar-overrides/:id', authenticate, authorize('admin'), async (req, res) => {
+  const { id } = req.params;
+  const { value } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE calendar_overrides SET value = $1 WHERE id = $2
+       RETURNING id, type, date::text AS date, week_number, value, label, created_at`,
+      [value ?? null, id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Override not found.' });
+    res.json(result.rows[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

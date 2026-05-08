@@ -205,10 +205,14 @@ export default function AdminDashboard() {
   const [calSelectedDates, setCalSelectedDates] = useState<Set<string>>(new Set());
   const [calShiftAnchor, setCalShiftAnchor] = useState<string | null>(null);
   const [calHiddenFilters, setCalHiddenFilters] = useState<Set<string>>(new Set());
-  const [calSearch, setCalSearch] = useState('');
-  const [calAuditLog, setCalAuditLog] = useState<{ id: number; ts: Date; action: string; target: string; from: string; to: string }[]>([]);
+
+  const [calAuditLog, setCalAuditLog] = useState<{ id: number; ts: Date; action: string; target: string; from: string; to: string; deleteInfo?: { type: string; date?: string; weekNumber?: number } }[]>([]);
   const [calUndoStack, setCalUndoStack] = useState<{ desc: string; fn: () => Promise<void> }[]>([]);
   const [calBulkLabel, setCalBulkLabel] = useState('');
+  const [calPendingMode, setCalPendingMode] = useState<'In-Person' | 'Online' | null>(null);
+  const [calPendingLabel, setCalPendingLabel] = useState('');
+  const [calPendingBlocked, setCalPendingBlocked] = useState<boolean | null>(null);
+  const [calLabelEditing, setCalLabelEditing] = useState(false);
   const [phHolidays, setPhHolidays] = useState<PhHoliday[]>([]);
 
   // Announcements
@@ -250,6 +254,18 @@ export default function AdminDashboard() {
     });
   }, []);
 
+  useEffect(() => {
+    const arr = [...calSelectedDates];
+    const single = arr.length === 1 ? arr[0] : null;
+    setCalPendingMode(null);
+    setCalPendingBlocked(null);
+    setCalLabelEditing(false);
+    const found = single
+      ? calOverrides.find((o: CalendarOverride) => o.type === 'date_label' && o.date === single)
+      : undefined;
+    setCalPendingLabel(found?.value ?? '');
+  }, [calSelectedDates]);
+
   const fetchAll = async () => {
     const [consultData, schedData, profData, usersData, adminsData, calData, annData] = await Promise.all([
       api.get('/api/consultations', token!),
@@ -257,7 +273,7 @@ export default function AdminDashboard() {
       api.get('/api/reports/professors', token!),
       api.get('/api/admin/users', token!),
       api.get('/api/admin/admins', token!),
-      api.get('/api/calendar/overrides', token!),
+      api.get('/api/calendar', token!),
       fetch(`${API_URL}/api/announcements`).then(r => r.ok ? r.json() : []).catch(() => []),
     ]);
 
@@ -273,12 +289,11 @@ export default function AdminDashboard() {
   };
 
   const refreshCalOverrides = async () => {
-    // Use the public endpoint — same data, no auth required
-    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'}/api/calendar`);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data)) setCalOverrides(data);
-    }
+    // Read token fresh from localStorage so stale closures never block state updates
+    const t = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!t) return;
+    const data = await api.get('/api/calendar', t);
+    if (Array.isArray(data)) setCalOverrides(data);
   };
 
   const handleLogout = () => { localStorage.clear(); router.push('/login'); };
@@ -401,72 +416,125 @@ export default function AdminDashboard() {
     else setCalViewMonth((m: number) => m + 1);
   };
 
-  const examWeekSet     = new Set(calOverrides.filter(o => o.type === 'exam_week'     && o.value === 'exam'   && o.week_number).map(o => o.week_number!));
-  const suppressExamSet = new Set(calOverrides.filter(o => o.type === 'exam_week'     && o.value === 'normal' && o.week_number).map(o => o.week_number!));
   const modeMap         = new Map(calOverrides.filter(o => o.type === 'mode_override' && o.week_number && o.value).map(o => [o.week_number!, o.value!]));
   const blockedDates    = calOverrides.filter(o => o.type === 'blocked_date' && o.date);
   const blockedSet      = new Set(blockedDates.map(o => o.date!));
   const phSet           = new Set(phHolidays.map(h => h.date));
+  const dateLabelMap    = new Map(calOverrides.filter(o => o.type === 'date_label' && o.date).map(o => [o.date!, o.value ?? '']));
 
-  const effectiveExam = (w: number) => {
-    if (examWeekSet.has(w)) return true;
-    const staticExam = w === CURRENT_TERM.midtermWeek || w === CURRENT_TERM.finalsWeek;
-    return staticExam && !suppressExamSet.has(w);
-  };
   const effectiveMode = (w: number): string => modeMap.get(w) ?? getWeekMode(CURRENT_TERM, w);
 
-  const handleExamToggle = async (w: number) => {
-    setCalSaving(`exam-${w}`);
-    const dbEntry = calOverrides.find(o => o.type === 'exam_week' && o.week_number === w);
-    const currently = effectiveExam(w);
-    const staticIsExam = w === CURRENT_TERM.midtermWeek || w === CURRENT_TERM.finalsWeek;
-    if (currently) {
-      if (dbEntry?.value === 'exam') {
-        await api.delete(`/api/calendar/overrides/${dbEntry.id}`, token!);
-      } else if (!dbEntry && staticIsExam) {
-        await api.post('/api/calendar/overrides', { type: 'exam_week', week_number: w, value: 'normal' }, token!);
+  const applyModeChange = async (w: number, targetMode: string, date?: string) => {
+    const current = effectiveMode(w);
+    if (current === targetMode) return;
+    const dbEntry = calOverrides.find(o => o.type === 'mode_override' && o.week_number === w);
+    const staticMode = getWeekMode(CURRENT_TERM, w);
+    let result;
+    if (dbEntry) {
+      if (targetMode === staticMode) {
+        result = await api.delete(`/api/admin/calendar-overrides/${dbEntry.id}`, token!);
+      } else {
+        result = await api.patch(`/api/admin/calendar-overrides/${dbEntry.id}`, { value: targetMode }, token!);
       }
-    } else {
-      if (dbEntry?.value === 'normal') {
-        await api.delete(`/api/calendar/overrides/${dbEntry.id}`, token!);
-      } else if (!dbEntry) {
-        await api.post('/api/calendar/overrides', { type: 'exam_week', week_number: w, value: 'exam' }, token!);
-      }
+    } else if (targetMode !== staticMode) {
+      result = await api.post('/api/admin/calendar-overrides', { type: 'mode_override', week_number: w, value: targetMode, date: date ?? null }, token!);
     }
-    await refreshCalOverrides();
-    setCalSaving(null);
+    if (result?.error) throw new Error(result.error);
   };
 
   const handleModeToggle = async (w: number) => {
     setCalSaving(`mode-${w}`);
-    const dbEntry = calOverrides.find(o => o.type === 'mode_override' && o.week_number === w);
-    const current = effectiveMode(w);
-    const newMode = current === 'Online' ? 'In-Person' : 'Online';
-    const staticMode = getWeekMode(CURRENT_TERM, w);
-    if (dbEntry) {
-      if (newMode === staticMode) {
-        await api.delete(`/api/calendar/overrides/${dbEntry.id}`, token!);
-      } else {
-        await api.patch(`/api/calendar/overrides/${dbEntry.id}`, { value: newMode }, token!);
-      }
-    } else if (newMode !== staticMode) {
-      await api.post('/api/calendar/overrides', { type: 'mode_override', week_number: w, value: newMode }, token!);
+    try {
+      const current = effectiveMode(w);
+      const newMode = current === 'Online' ? 'In-Person' : 'Online';
+      await applyModeChange(w, newMode);
+      await refreshCalOverrides();
+    } catch (err) {
+      setCalError(err instanceof Error ? err.message : 'Failed to update mode');
+    } finally {
+      setCalSaving(null);
     }
-    await refreshCalOverrides();
-    setCalSaving(null);
+  };
+
+  const handleSaveDate = async (date: string, week: number | null) => {
+    setCalSaving('save'); setCalError(null);
+    const auditEntries: typeof calAuditLog = [];
+    try {
+      // Mode change (throws on API error via applyModeChange)
+      if (week && calPendingMode !== null) {
+        const prev = effectiveMode(week);
+        await applyModeChange(week, calPendingMode, date);
+        auditEntries.push({ id: Date.now(), ts: new Date(), action: 'Mode changed', target: `Week ${week}`, from: prev, to: calPendingMode, deleteInfo: { type: 'mode_override', weekNumber: week } });
+      }
+      // Event label
+      const existingLabel = calOverrides.find((o: CalendarOverride) => o.type === 'date_label' && o.date === date);
+      const newLabel = calPendingLabel.trim();
+      if (newLabel && (!existingLabel || existingLabel.value !== newLabel)) {
+        const r = existingLabel
+          ? await api.patch(`/api/admin/calendar-overrides/${existingLabel.id}`, { value: newLabel }, token!)
+          : await api.post('/api/admin/calendar-overrides', { type: 'date_label', date, value: newLabel }, token!);
+        if (r?.error) throw new Error(r.error);
+        auditEntries.push({ id: Date.now() + 1, ts: new Date(), action: 'Note set', target: date, from: existingLabel?.value ?? '—', to: newLabel, deleteInfo: { type: 'date_label', date } });
+      } else if (!newLabel && existingLabel) {
+        const r = await api.delete(`/api/admin/calendar-overrides/${existingLabel.id}`, token!);
+        if (r?.error) throw new Error(r.error);
+        auditEntries.push({ id: Date.now() + 1, ts: new Date(), action: 'Note removed', target: date, from: existingLabel.value ?? '', to: '—' });
+      }
+      // Blocked status
+      if (calPendingBlocked !== null) {
+        const isCurrentlyBlocked = blockedSet.has(date);
+        if (calPendingBlocked && !isCurrentlyBlocked) {
+          const r = await api.post('/api/admin/blocked-dates', { date, label: null }, token!);
+          if (r?.error) throw new Error(r.error);
+          auditEntries.push({ id: Date.now() + 2, ts: new Date(), action: 'Blocked', target: date, from: 'Normal', to: 'Blocked', deleteInfo: { type: 'blocked_date', date } });
+        } else if (!calPendingBlocked && isCurrentlyBlocked) {
+          const entry = blockedDates.find((o: CalendarOverride) => o.date === date);
+          if (entry) {
+            const r = await api.delete(`/api/admin/blocked-dates/${entry.id}`, token!);
+            if (r?.error) throw new Error(r.error);
+          }
+          auditEntries.push({ id: Date.now() + 2, ts: new Date(), action: 'Unblocked', target: date, from: 'Blocked', to: 'Normal' });
+        }
+      }
+      // Re-fetch fresh data from backend and update local state
+      await refreshCalOverrides();
+      if (auditEntries.length > 0) setCalAuditLog(log => [...auditEntries, ...log].slice(0, 20));
+    } catch (err) {
+      setCalError(err instanceof Error ? err.message : 'Failed to save. Please try again.');
+    } finally {
+      setCalSaving(null);
+      setCalPendingMode(null);
+      setCalPendingBlocked(null);
+    }
   };
 
   const handleDeleteOverride = async (id: number, type?: string) => {
     setCalError(null);
     const endpoint = type === 'blocked_date'
       ? `/api/admin/blocked-dates/${id}`
-      : `/api/calendar/overrides/${id}`;
+      : `/api/admin/calendar-overrides/${id}`;
     const result = await api.delete(endpoint, token!);
     if (result?.error) {
       setCalError(`Failed to delete: ${result.error}`);
     } else {
       await refreshCalOverrides();
     }
+  };
+
+  const handleDeleteFromHistory = async (entryId: number, deleteInfo: { type: string; date?: string; weekNumber?: number }) => {
+    setCalError(null);
+    let override: CalendarOverride | undefined;
+    if (deleteInfo.type === 'date_label' && deleteInfo.date) {
+      override = calOverrides.find((o: CalendarOverride) => o.type === 'date_label' && o.date === deleteInfo.date);
+    } else if (deleteInfo.type === 'blocked_date' && deleteInfo.date) {
+      override = calOverrides.find((o: CalendarOverride) => o.type === 'blocked_date' && o.date === deleteInfo.date);
+    } else if (deleteInfo.type === 'mode_override' && deleteInfo.weekNumber) {
+      override = calOverrides.find((o: CalendarOverride) => o.type === 'mode_override' && o.week_number === deleteInfo.weekNumber);
+    }
+    if (override) {
+      await handleDeleteOverride(override.id, override.type);
+    }
+    setCalAuditLog(log => log.filter(e => e.id !== entryId));
   };
 
   // ── Announcement handlers ────────────────────────────────────────────────────
@@ -1272,14 +1340,12 @@ export default function AdminDashboard() {
                             const dWeek = getAcademicWeek(CURRENT_TERM, date);
                             const isToday = dStr === todayStr;
                             const isBlocked = blockedSet.has(dStr) || phSet.has(dStr) || isHoliday(date);
-                            const isExam = dWeek ? effectiveExam(dWeek) : false;
                             const dMode = dWeek ? effectiveMode(dWeek) : null;
                             const isWeekend = date.getDay() === 0 || date.getDay() === 6;
                             let cellBg = '';
                             let numCls = 'text-gray-200';
                             if (!dWeek) { numCls = 'text-gray-700'; }
                             else if (isBlocked) { cellBg = 'bg-red-500/25'; numCls = 'text-red-300'; }
-                            else if (isExam) { cellBg = 'bg-amber-500/15'; numCls = 'text-amber-200'; }
                             else if (dMode === 'Online') { cellBg = 'bg-blue-500/15'; numCls = 'text-blue-200'; }
                             else if (!isWeekend) { cellBg = 'bg-emerald-500/10'; numCls = 'text-emerald-300'; }
                             return (
@@ -1438,14 +1504,12 @@ export default function AdminDashboard() {
               const detailDate = calSingle ? new Date(calSingle + 'T12:00:00') : null;
               const detailWeek = detailDate ? getAcademicWeek(CURRENT_TERM, detailDate) : null;
               const detailMode = detailWeek ? effectiveMode(detailWeek) : null;
-              const detailIsExam = detailWeek ? effectiveExam(detailWeek) : false;
               const detailIsBlocked = calSingle ? blockedSet.has(calSingle) : false;
               const detailBlockedEntry = calSingle ? blockedDates.find((o: CalendarOverride) => o.date === calSingle) : undefined;
 
               const CAL_LEGEND = [
                 { key: 'inPerson', cls: 'bg-emerald-500/25', label: 'In-Person' },
                 { key: 'online',   cls: 'bg-blue-500/25',    label: 'Online' },
-                { key: 'exam',     cls: 'bg-amber-500/25',   label: 'Exam Week' },
                 { key: 'blocked',  cls: 'bg-red-500/30',     label: 'Blocked' },
               ];
 
@@ -1472,21 +1536,6 @@ export default function AdminDashboard() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap justify-end">
-                      <input
-                        type="date"
-                        value={calSearch}
-                        onChange={e => {
-                          setCalSearch(e.target.value);
-                          if (e.target.value) {
-                            const d = new Date(e.target.value + 'T12:00:00');
-                            setCalViewYear(d.getFullYear());
-                            setCalViewMonth(d.getMonth());
-                            setCalSelectedDates(new Set([e.target.value]));
-                            setCalShiftAnchor(e.target.value);
-                          }
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-white text-xs bg-[#1a1a1a] border border-white/5 focus:outline-none focus:border-[#CC0000]/30 [color-scheme:dark]"
-                      />
                       <div className="flex items-center gap-1 bg-[#1a1a1a] rounded-xl border border-white/5 px-3 py-2">
                         <button onClick={prevCalMonth} className="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1585,20 +1634,19 @@ export default function AdminDashboard() {
                                 const isToday = dStr === todayStr;
                                 const isSelected = calSelectedDates.has(dStr);
                                 const isBlocked = blockedSet.has(dStr);
-                                const isExam = dWeek ? effectiveExam(dWeek) : false;
                                 const dMode = dWeek ? effectiveMode(dWeek) : null;
-                                const isWeekend = date.getDay() === 0 || date.getDay() === 6;
+                                const hasExplicitMode = dWeek ? modeMap.has(dWeek) : false;
+                                const isSunday = date.getDay() === 0;
                                 let cellBg = '';
                                 let numCls = 'text-gray-200';
-                                if (!dWeek) { numCls = 'text-gray-700'; }
+                                if (!dWeek || isSunday) { numCls = 'text-gray-700'; }
                                 else if (isBlocked && !calHiddenFilters.has('blocked')) { cellBg = 'bg-red-500/25'; numCls = 'text-red-300'; }
-                                else if (isExam && !calHiddenFilters.has('exam')) { cellBg = 'bg-amber-500/15'; numCls = 'text-amber-200'; }
-                                else if (dMode === 'Online' && !calHiddenFilters.has('online')) { cellBg = 'bg-blue-500/15'; numCls = 'text-blue-200'; }
-                                else if (!isWeekend && !calHiddenFilters.has('inPerson')) { cellBg = 'bg-emerald-500/10'; numCls = 'text-emerald-300'; }
+                                else if (hasExplicitMode && dMode === 'Online' && !calHiddenFilters.has('online')) { cellBg = 'bg-blue-500/15'; numCls = 'text-blue-200'; }
+                                else if (hasExplicitMode && !calHiddenFilters.has('inPerson')) { cellBg = 'bg-emerald-500/10'; numCls = 'text-emerald-300'; }
                                 return (
                                   <button key={di}
                                     onClick={(e) => {
-                                      if (!inMonth) return;
+                                      if (!inMonth || isSunday) return;
                                       if (e.ctrlKey || e.metaKey) {
                                         setCalSelectedDates(prev => {
                                           const next = new Set(prev);
@@ -1621,10 +1669,10 @@ export default function AdminDashboard() {
                                         setCalShiftAnchor(dStr);
                                       }
                                     }}
-                                    className={`relative flex items-center justify-center min-h-[52px] border-r border-white/5 last:border-0 transition-all ${cellBg} ${
+                                    className={`relative flex flex-col items-center justify-center min-h-[52px] border-r border-white/5 last:border-0 transition-all ${cellBg} ${
                                       isSelected ? 'ring-2 ring-inset ring-[#CC0000]/60 brightness-125 z-10' : ''
-                                    } ${inMonth ? 'cursor-pointer hover:brightness-125 hover:z-10' : 'opacity-20 cursor-default'}`}
-                                    title={inMonth ? `${dStr}${dWeek ? ` · W${dWeek}` : ''}` : undefined}
+                                    } ${inMonth && !isSunday ? 'cursor-pointer hover:brightness-125 hover:z-10' : 'opacity-20 cursor-default'}`}
+                                    title={inMonth ? `${dStr}${dWeek ? ` · W${dWeek}` : ''}${dateLabelMap.get(dStr) ? ` · ${dateLabelMap.get(dStr)}` : ''}` : undefined}
                                   >
                                     {isToday ? (
                                       <span className="w-7 h-7 rounded-full bg-[#CC0000] flex items-center justify-center text-xs font-bold text-white shadow-lg shadow-red-900/50">
@@ -1633,8 +1681,11 @@ export default function AdminDashboard() {
                                     ) : (
                                       <span className={`text-xs font-medium ${numCls}`}>{date.getDate()}</span>
                                     )}
+                                    {inMonth && dateLabelMap.get(dStr) && (
+                                      <span className="text-[8px] text-amber-400/80 leading-tight px-0.5 truncate max-w-full">{dateLabelMap.get(dStr)}</span>
+                                    )}
                                     {isSelected && !isToday && (
-                                      <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#CC0000]" />
+                                      <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#CC0000]" />
                                     )}
                                   </button>
                                 );
@@ -1713,8 +1764,15 @@ export default function AdminDashboard() {
 
                       {/* Single date detail */}
                       {calSingle && (() => {
-                        const mSaving = calSaving === `exam-${detailWeek}` || calSaving === `mode-${detailWeek}` || calSaving === 'blocked';
+                        const isSaving = calSaving === 'save';
                         const displayDate = detailDate?.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+                        const pendingMode = calPendingMode ?? detailMode;
+                        const pendingBlocked = calPendingBlocked !== null ? calPendingBlocked : detailIsBlocked;
+                        const savedLabel = dateLabelMap.get(calSingle) ?? '';
+                        const hasPendingChanges =
+                          calPendingMode !== null ||
+                          calPendingLabel.trim() !== savedLabel ||
+                          calPendingBlocked !== null;
                         return (
                           <div className="rounded-2xl border border-white/5 bg-[#161616] overflow-hidden">
                             <div className="px-5 py-4 border-b border-white/5 bg-[#CC0000]/5">
@@ -1727,98 +1785,113 @@ export default function AdminDashboard() {
                             </div>
                             {detailWeek ? (
                               <div className="p-4 space-y-3">
-                                {/* Mode */}
-                                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5">
-                                  <span className="text-gray-400 text-sm">Mode</span>
-                                  <button
-                                    onClick={async () => {
-                                      const prev = effectiveMode(detailWeek);
-                                      await handleModeToggle(detailWeek);
-                                      const next = prev === 'Online' ? 'In-Person' : 'Online';
-                                      setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Mode changed', target: `Week ${detailWeek}`, from: prev, to: next }, ...log.slice(0, 19)]);
-                                      setCalUndoStack(s => [...s.slice(-9), { desc: `Undo mode on W${detailWeek}`, fn: async () => handleModeToggle(detailWeek) }]);
-                                    }}
-                                    disabled={mSaving}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                                      detailMode === 'Online' ? 'bg-blue-500/20 text-blue-300 hover:bg-blue-500/30' : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30'
-                                    }`}
-                                  >
-                                    <span className={`w-1.5 h-1.5 rounded-full ${detailMode === 'Online' ? 'bg-blue-400' : 'bg-emerald-400'}`} />
-                                    {detailMode}
-                                    <span className="opacity-40 text-[10px]">↕</span>
-                                  </button>
+                                {/* Event / Note */}
+                                <div className="px-4 py-3 rounded-xl bg-white/5">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-gray-400 text-sm">Event / Note</p>
+                                    {savedLabel && !calLabelEditing && (
+                                      <button
+                                        onClick={() => { setCalLabelEditing(true); setCalPendingLabel(savedLabel); }}
+                                        disabled={isSaving}
+                                        className="text-[10px] text-[#CC0000]/70 hover:text-[#CC0000] transition-colors disabled:opacity-40"
+                                      >Edit</button>
+                                    )}
+                                    {calLabelEditing && (
+                                      <button
+                                        onClick={() => { setCalLabelEditing(false); setCalPendingLabel(savedLabel); }}
+                                        disabled={isSaving}
+                                        className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors disabled:opacity-40"
+                                      >Cancel</button>
+                                    )}
+                                  </div>
+                                  {savedLabel && !calLabelEditing ? (
+                                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#0f0f0f] border border-white/10">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400/70 flex-shrink-0" />
+                                      <span className="text-amber-300/80 text-xs truncate">{savedLabel}</span>
+                                    </div>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      placeholder="e.g. No Classes, Holiday, Lab Activity…"
+                                      value={calPendingLabel}
+                                      onChange={e => setCalPendingLabel(e.target.value)}
+                                      maxLength={40}
+                                      disabled={isSaving}
+                                      autoFocus={calLabelEditing}
+                                      className="w-full px-3 py-2 rounded-lg text-white text-xs bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50 placeholder-gray-700 disabled:opacity-40"
+                                    />
+                                  )}
                                 </div>
-                                {/* Exam week */}
-                                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5">
-                                  <span className="text-gray-400 text-sm">Exam Week</span>
-                                  <button
-                                    onClick={async () => {
-                                      const was = detailIsExam;
-                                      await handleExamToggle(detailWeek);
-                                      setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Exam toggled', target: `Week ${detailWeek}`, from: was ? 'Exam' : 'Regular', to: was ? 'Regular' : 'Exam' }, ...log.slice(0, 19)]);
-                                      setCalUndoStack(s => [...s.slice(-9), { desc: `Undo exam on W${detailWeek}`, fn: async () => handleExamToggle(detailWeek) }]);
-                                    }}
-                                    disabled={mSaving}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                                      detailIsExam ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300'
-                                    }`}
-                                  >
-                                    {detailIsExam ? (
-                                      <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>Exam</>
-                                    ) : '– Regular'}
-                                  </button>
+                                {/* Mode */}
+                                <div className="px-4 py-3 rounded-xl bg-white/5">
+                                  <div className="flex items-center justify-between mb-2.5">
+                                    <p className="text-gray-400 text-sm">Mode</p>
+                                    <span className="text-[10px] text-gray-600">whole Week {detailWeek}</span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {(['In-Person', 'Online'] as const).map(mode => {
+                                      const isActive = pendingMode === mode;
+                                      const activecls = mode === 'In-Person'
+                                        ? 'bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-500/40'
+                                        : 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/40';
+                                      const idlecls = mode === 'In-Person'
+                                        ? 'bg-white/5 text-gray-500 hover:bg-emerald-500/10 hover:text-emerald-400'
+                                        : 'bg-white/5 text-gray-500 hover:bg-blue-500/10 hover:text-blue-400';
+                                      return (
+                                        <button
+                                          key={mode}
+                                          onClick={() => {
+                                            if (isActive) return;
+                                            if (mode === detailMode) setCalPendingMode(null);
+                                            else setCalPendingMode(mode);
+                                          }}
+                                          disabled={isSaving}
+                                          className={`flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${isActive ? activecls : idlecls}`}
+                                        >
+                                          <span className={`w-1.5 h-1.5 rounded-full ${isActive ? (mode === 'In-Person' ? 'bg-emerald-400' : 'bg-blue-400') : 'bg-gray-600'}`} />
+                                          {mode}
+                                          {isActive && calPendingMode !== null && <span className="text-[9px] opacity-50 ml-0.5">✦</span>}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {calPendingMode !== null && (
+                                    <p className="text-[10px] text-amber-500/60 mt-1.5">Unsaved · applies to all days in Week {detailWeek}</p>
+                                  )}
                                 </div>
                                 {/* Blocked */}
                                 <div className="px-4 py-3 rounded-xl bg-white/5">
-                                  <p className="text-gray-400 text-sm mb-2.5">Blocked / Special</p>
-                                  {detailIsBlocked ? (
-                                    <div className="flex items-center justify-between gap-3">
-                                      <div className="min-w-0">
-                                        <span className="text-red-400 text-xs font-semibold">Blocked</span>
-                                        {detailBlockedEntry?.label && <span className="text-gray-500 text-xs ml-2 truncate">— {detailBlockedEntry.label}</span>}
-                                      </div>
-                                      <button
-                                        onClick={async () => {
-                                          if (detailBlockedEntry) {
-                                            await handleDeleteOverride(detailBlockedEntry.id, 'blocked_date');
-                                            setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Unblocked', target: calSingle!, from: 'Blocked', to: 'Normal' }, ...log.slice(0, 19)]);
-                                          }
-                                        }}
-                                        disabled={mSaving}
-                                        className="flex-shrink-0 text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-                                      >Remove</button>
-                                    </div>
-                                  ) : (
-                                    <div className="space-y-2">
-                                      <input
-                                        type="text"
-                                        placeholder="Label (optional)"
-                                        value={addBlockedLabel}
-                                        onChange={e => setAddBlockedLabel(e.target.value)}
-                                        className="w-full px-3 py-2 rounded-lg text-white text-xs bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50 placeholder-gray-700"
-                                      />
-                                      <button
-                                        onClick={async () => {
-                                          const lbl = addBlockedLabel.trim();
-                                          setCalSaving('blocked'); setCalError(null);
-                                          const result = await api.post('/api/admin/blocked-dates', { date: calSingle, label: lbl || null }, token!);
-                                          if (result?.error) { setCalError(`Failed: ${result.error}`); }
-                                          else {
-                                            setAddBlockedLabel('');
-                                            await refreshCalOverrides();
-                                            setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Blocked', target: calSingle!, from: 'Normal', to: lbl || 'Blocked' }, ...log.slice(0, 19)]);
-                                          }
-                                          setCalSaving(null);
-                                        }}
-                                        disabled={mSaving}
-                                        className="w-full py-2 rounded-lg text-xs font-semibold bg-[#CC0000] text-white hover:bg-[#aa0000] transition-colors disabled:opacity-40"
-                                      >
-                                        {calSaving === 'blocked' ? 'Saving…' : 'Mark as Blocked'}
-                                      </button>
-                                    </div>
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-gray-400 text-sm">Blocked Day</p>
+                                    <button
+                                      onClick={() => {
+                                        const desired = !pendingBlocked;
+                                        if (desired === detailIsBlocked) setCalPendingBlocked(null);
+                                        else setCalPendingBlocked(desired);
+                                      }}
+                                      disabled={isSaving}
+                                      aria-label="Toggle blocked"
+                                      className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-40 ${pendingBlocked ? 'bg-red-500/60' : 'bg-white/10'}`}
+                                    >
+                                      <span className={`absolute top-0.5 w-4 h-4 rounded-full transition-transform bg-white shadow-sm ${pendingBlocked ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                                    </button>
+                                  </div>
+                                  {pendingBlocked && (
+                                    <p className="text-red-400/60 text-[10px] mt-1.5">No consultations on this day</p>
+                                  )}
+                                  {calPendingBlocked !== null && (
+                                    <p className="text-[10px] text-amber-500/60 mt-0.5">Unsaved change</p>
                                   )}
                                 </div>
-                                {mSaving && <p className="text-center text-xs text-gray-600 animate-pulse">Saving…</p>}
+                                {/* Save */}
+                                <button
+                                  onClick={() => handleSaveDate(calSingle!, detailWeek)}
+                                  disabled={isSaving || !hasPendingChanges}
+                                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#CC0000] text-white hover:bg-[#aa0000] transition-colors disabled:opacity-30"
+                                >
+                                  {isSaving ? 'Saving…' : hasPendingChanges ? 'Save Changes' : 'No Changes'}
+                                </button>
+                                {calError && <p className="text-center text-xs text-red-400 mt-1">{calError}</p>}
                               </div>
                             ) : (
                               <div className="p-4">
@@ -1864,28 +1937,6 @@ export default function AdminDashboard() {
                                     disabled={isSaving}
                                     className="py-2 rounded-lg text-xs font-semibold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 transition-colors disabled:opacity-40"
                                   >Online</button>
-                                </div>
-                              </div>
-                              {/* Bulk exam */}
-                              <div>
-                                <p className="text-gray-500 text-[10px] font-semibold uppercase tracking-wider mb-2">Exam Weeks</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <button
-                                    onClick={async () => {
-                                      for (const w of selectedWeeks) { if (!effectiveExam(w)) await handleExamToggle(w); }
-                                      setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Bulk Mark Exam', target: `W${selectedWeeks.join(',')}`, from: 'Regular', to: 'Exam' }, ...log.slice(0, 19)]);
-                                    }}
-                                    disabled={isSaving}
-                                    className="py-2 rounded-lg text-xs font-semibold bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 transition-colors disabled:opacity-40"
-                                  >Mark Exam</button>
-                                  <button
-                                    onClick={async () => {
-                                      for (const w of selectedWeeks) { if (effectiveExam(w)) await handleExamToggle(w); }
-                                      setCalAuditLog(log => [{ id: Date.now(), ts: new Date(), action: 'Bulk Clear Exam', target: `W${selectedWeeks.join(',')}`, from: 'Exam', to: 'Regular' }, ...log.slice(0, 19)]);
-                                    }}
-                                    disabled={isSaving}
-                                    className="py-2 rounded-lg text-xs font-semibold bg-white/5 text-gray-400 hover:bg-white/10 transition-colors disabled:opacity-40"
-                                  >Clear Exam</button>
                                 </div>
                               </div>
                               {/* Bulk block */}
@@ -1949,14 +2000,27 @@ export default function AdminDashboard() {
                             {calAuditLog.map(entry => (
                               <div key={entry.id} className="px-5 py-2.5">
                                 <div className="flex items-start justify-between gap-2">
-                                  <div className="min-w-0">
+                                  <div className="min-w-0 flex-1">
                                     <p className="text-gray-200 text-xs font-medium">{entry.action}</p>
                                     <p className="text-gray-500 text-[11px] truncate">{entry.target}</p>
                                     <p className="text-gray-700 text-[10px]">{entry.from} → {entry.to}</p>
                                   </div>
-                                  <p className="text-[10px] text-gray-700 flex-shrink-0 mt-0.5">
-                                    {entry.ts.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
-                                  </p>
+                                  <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
+                                    <p className="text-[10px] text-gray-700">
+                                      {entry.ts.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })}
+                                    </p>
+                                    {entry.deleteInfo && (
+                                      <button
+                                        onClick={() => handleDeleteFromHistory(entry.id, entry.deleteInfo!)}
+                                        title="Delete this override"
+                                        className="text-gray-700 hover:text-red-400 transition-colors"
+                                      >
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             ))}
@@ -1975,10 +2039,9 @@ export default function AdminDashboard() {
               const md = new Date(calModalDate + 'T12:00:00');
               const mWeek = getAcademicWeek(CURRENT_TERM, md);
               const mMode = mWeek ? effectiveMode(mWeek) : null;
-              const mIsExam = mWeek ? effectiveExam(mWeek) : false;
               const mIsBlocked = blockedSet.has(calModalDate);
               const mBlockedEntry = blockedDates.find((o: CalendarOverride) => o.date === calModalDate);
-              const mSaving = calSaving === `exam-${mWeek}` || calSaving === `mode-${mWeek}` || calSaving === 'blocked';
+              const mSaving = calSaving === `mode-${mWeek}` || calSaving === 'blocked';
               const displayDate = md.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
               return (
@@ -2017,24 +2080,6 @@ export default function AdminDashboard() {
                           >
                             <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${mMode === 'Online' ? 'bg-blue-400' : 'bg-emerald-400'}`} />
                             {mMode ?? '—'}
-                            <span className="text-[10px] opacity-40 ml-1">tap to toggle</span>
-                          </button>
-                        </div>
-
-                        <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-white/5 border border-white/5">
-                          <span className="text-gray-400 text-sm">Exam Week</span>
-                          <button
-                            onClick={() => handleExamToggle(mWeek)}
-                            disabled={mSaving}
-                            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${
-                              mIsExam ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'bg-white/5 text-gray-500 hover:bg-white/10 hover:text-gray-300'
-                            }`}
-                          >
-                            {mIsExam ? (
-                              <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>Exam</>
-                            ) : (
-                              <><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>Regular</>
-                            )}
                             <span className="text-[10px] opacity-40 ml-1">tap to toggle</span>
                           </button>
                         </div>

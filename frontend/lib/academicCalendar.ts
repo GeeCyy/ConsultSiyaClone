@@ -3,7 +3,7 @@
 
 export type CalendarOverride = {
   id: number;
-  type: 'exam_week' | 'mode_override' | 'blocked_date';
+  type: 'exam_week' | 'mode_override' | 'blocked_date' | 'date_label';
   date: string | null;
   week_number: number | null;
   value: string | null;

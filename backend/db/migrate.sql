@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS professor_responsibilities (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Add date_label type to calendar_overrides (per-date event notes)
+ALTER TABLE calendar_overrides DROP CONSTRAINT IF EXISTS calendar_overrides_type_check;
+ALTER TABLE calendar_overrides ADD CONSTRAINT calendar_overrides_type_check
+  CHECK (type IN ('exam_week', 'mode_override', 'blocked_date', 'date_label'));
+
 -- Announcements: admin-managed notices shown on all dashboards
 CREATE TABLE IF NOT EXISTS announcements (
   id         SERIAL PRIMARY KEY,
