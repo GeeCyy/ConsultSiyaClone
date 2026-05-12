@@ -1658,25 +1658,25 @@ export default function AdminDashboard() {
                 sub:              isDark ? 'text-gray-500'    : 'text-gray-500',
                 muted:            isDark ? 'text-gray-600'    : 'text-gray-400',
                 faint:            isDark ? 'text-gray-700'    : 'text-gray-400',
-                dayHeader:        isDark ? 'text-gray-600'    : 'text-gray-400',
+                dayHeader:        isDark ? 'text-gray-400'    : 'text-gray-400',
                 cellBorder:       isDark ? 'border-white/5'   : 'border-gray-100',
                 cellNumDefault:   isDark ? 'text-gray-200'    : 'text-gray-700',
-                cellNumFaded:     isDark ? 'text-gray-700'    : 'text-gray-300',
-                cellNumSunday:    isDark ? 'text-red-900'     : 'text-red-400',
+                cellNumFaded:     isDark ? 'text-gray-600'    : 'text-gray-300',
+                cellNumSunday:    isDark ? 'text-red-700'     : 'text-red-400',
                 cellNumBlocked:   isDark ? 'text-red-300'     : 'text-red-700',
                 cellNumOnline:    isDark ? 'text-blue-200'    : 'text-blue-700',
                 cellNumInPerson:  isDark ? 'text-emerald-300' : 'text-emerald-700',
                 cellEventLabel:   isDark ? 'text-amber-400/80': 'text-amber-600',
-                weekNumBase:      isDark ? 'text-gray-600 hover:text-gray-400 hover:bg-white/10' : 'text-gray-400 hover:text-gray-700 hover:bg-black/5',
+                weekNumBase:      isDark ? 'text-gray-500 hover:text-gray-300 hover:bg-white/10' : 'text-gray-400 hover:text-gray-700 hover:bg-black/5',
                 weekNumActive:    isDark ? 'text-emerald-400 hover:bg-white/10' : 'text-emerald-600 hover:bg-black/5',
-                legendBtn:        isDark ? 'bg-white/[0.04] border-white/5 text-gray-400 hover:text-gray-200 hover:bg-white/8' : 'bg-gray-100 border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-200/60',
-                legendBtnHidden:  isDark ? 'opacity-30 bg-white/5 border-white/5 text-gray-600' : 'opacity-30 bg-gray-100 border-gray-200 text-gray-400',
+                legendBtn:        isDark ? 'bg-[#252525] border-[#3a3a3a] text-gray-200 hover:text-white hover:bg-[#2e2e2e] hover:border-[#4a4a4a]' : 'bg-gray-100 border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-200/60',
+                legendBtnHidden:  isDark ? 'opacity-30 bg-[#1e1e1e] border-[#2a2a2a] text-gray-500' : 'opacity-30 bg-gray-100 border-gray-200 text-gray-400',
                 modeInPersonActive: isDark ? 'bg-emerald-500/30 text-emerald-300 ring-1 ring-emerald-500/40' : 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-400/50',
                 modeOnlineActive:   isDark ? 'bg-blue-500/30 text-blue-300 ring-1 ring-blue-500/40'     : 'bg-blue-100 text-blue-700 ring-1 ring-blue-400/50',
                 modeInPersonIdle:   isDark ? 'bg-white/5 text-gray-500 hover:bg-emerald-500/10 hover:text-emerald-400' : 'bg-gray-100 text-gray-600 hover:bg-emerald-50 hover:text-emerald-700',
                 modeOnlineIdle:     isDark ? 'bg-white/5 text-gray-500 hover:bg-blue-500/10 hover:text-blue-400'   : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700',
                 modeDot:          isDark ? 'bg-gray-600'    : 'bg-gray-400',
-                input:            isDark ? 'text-white bg-[#0f0f0f] border-white/10 placeholder-gray-700' : 'text-gray-900 bg-white border-gray-300 placeholder-gray-400',
+                input:            isDark ? 'text-white bg-[#1a1a1a] border-[#3a3a3a] placeholder-gray-500' : 'text-gray-900 bg-white border-gray-300 placeholder-gray-400',
                 navArrow:         isDark ? 'text-gray-400 hover:text-white hover:bg-white/10' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100',
                 clearBtn:         isDark ? 'text-gray-500 hover:text-gray-300 hover:bg-white/5' : 'text-gray-400 hover:text-gray-700 hover:bg-gray-100',
                 countBadge:       isDark ? 'text-gray-600 bg-white/5'  : 'text-gray-500 bg-gray-100',
@@ -1770,11 +1770,11 @@ export default function AdminDashboard() {
                             {label}
                           </button>
                         ))}
-                        <span className={`flex items-center gap-1.5 text-[10px] ${c.muted}`}>
+                        <span className={`flex items-center gap-1.5 text-[10px] ${c.label}`}>
                           <span className="w-5 h-5 rounded-full bg-[#CC0000] flex items-center justify-center text-[9px] text-white font-bold leading-none">T</span>
                           Today
                         </span>
-                        <span className={`ml-auto text-[10px] ${c.faint} hidden lg:block`}>Ctrl+click multi · Shift+click range · W# selects week</span>
+                        <span className={`ml-auto text-[10px] ${c.sub} hidden lg:block`}>Ctrl+click multi · Shift+click range · W# selects week</span>
                       </div>
 
                       {/* Calendar grid */}
@@ -1849,7 +1849,7 @@ export default function AdminDashboard() {
                                         setCalShiftAnchor(dStr);
                                       }
                                     }}
-                                    className={`relative flex flex-col items-center justify-center min-h-[52px] border-r ${c.cellBorder} last:border-0 transition-all ${cellBg} ${
+                                    className={`relative flex flex-col items-center min-h-[72px] pt-2.5 pb-1.5 px-0.5 border-r ${c.cellBorder} last:border-0 transition-all ${cellBg} ${
                                       isSelected ? 'ring-2 ring-inset ring-[#CC0000]/60 brightness-125 z-10' : ''
                                     } ${!inMonth ? 'opacity-20 cursor-default' : isSunday ? 'cursor-default' : 'cursor-pointer hover:brightness-125 hover:z-10'}`}
                                     title={inMonth ? `${dStr}${dWeek ? ` · W${dWeek}` : ''}${dateLabelMap.get(dStr) ? ` · ${dateLabelMap.get(dStr)}` : ''}` : undefined}
@@ -1864,7 +1864,7 @@ export default function AdminDashboard() {
                                     {inMonth && dateLabelMap.get(dStr) && (() => {
                                       const ec = EVENT_COLORS.find(x => x.id === (dateColorMap.get(dStr) ?? 'red')) ?? EVENT_COLORS[0];
                                       return (
-                                        <span className={`text-[7px] font-semibold px-1 py-px rounded-full ${ec.pill} ${ec.pillText} truncate max-w-full leading-tight shadow-sm`}>
+                                        <span className={`mt-1.5 w-full text-[9px] font-semibold px-1 py-0.5 rounded-sm ${ec.pill} ${ec.pillText} truncate text-center leading-tight`}>
                                           {dateLabelMap.get(dStr)}
                                         </span>
                                       );

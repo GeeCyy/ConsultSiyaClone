@@ -218,21 +218,21 @@ function CalendarView({
               key={date.toISOString()}
               onClick={() => setSelected(isSelected ? null : date)}
               className={`
-                relative flex flex-col items-center justify-center rounded-lg min-h-[38px] pb-0.5 text-xs transition-colors
-                ${isToday ? 'ring-1 ring-[#CC0000] font-bold' : ''}
+                relative flex flex-col items-center rounded-lg min-h-[56px] pt-2 pb-1.5 px-0.5 text-xs transition-colors
+                ${isToday ? 'ring-1 ring-[#CC0000]' : ''}
                 ${cellBg}
                 ${blocked ? 'text-red-400' : week ? 'text-gray-200' : 'text-gray-600'}
                 ${!isToday && !isSelected ? 'hover:bg-white/5' : ''}
               `}
             >
-              <span>{date.getDate()}</span>
+              <span className={isToday ? 'font-bold' : ''}>{date.getDate()}</span>
               {eventTitle && (
-                <span className={`text-[6px] font-bold px-1 py-px rounded-full ${ec.pill} ${ec.pillText} truncate max-w-[90%] leading-tight`}>
+                <span className={`mt-1.5 w-full text-[9px] font-semibold px-1 py-0.5 rounded-sm ${ec.pill} ${ec.pillText} truncate text-center leading-tight`}>
                   {eventTitle}
                 </span>
               )}
               {nc && (
-                <span className={`absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full ${nc.dot}`} />
+                <span className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${nc.dot}`} />
               )}
             </button>
           );
@@ -360,7 +360,6 @@ const NAV_ITEMS: Record<string, { label: string; icon: React.ReactNode; path: st
     { label: 'Book a Slot', path: '/dashboard/student?view=book', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg> },
     { label: 'My Consultations', path: '/dashboard/student?view=my', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" /></svg> },
     { label: 'History', path: '/dashboard/student?view=history', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> },
-    { label: 'Profile', path: '/dashboard/student?view=profile', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" /></svg> },
   ],
   professor: [
     { label: 'Manage Schedules', path: '/dashboard/professor?view=schedules', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg> },
@@ -368,7 +367,6 @@ const NAV_ITEMS: Record<string, { label: string; icon: React.ReactNode; path: st
     { label: 'My Consultations', path: '/dashboard/professor?view=consultations', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" /></svg> },
     { label: 'Export Report', path: '/dashboard/professor?view=reports', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4-4 4m0 0-4-4m4 4V4" /></svg> },
     { label: 'History', path: '/dashboard/professor?view=history', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> },
-    { label: 'Profile', path: '/dashboard/professor?view=profile', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" /></svg> },
   ],
   admin: [
     { label: 'Consultations', path: '/dashboard/admin?tab=consultations', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z" /></svg> },
@@ -700,9 +698,9 @@ export default function HomePage() {
               { label: 'Weeks Remaining', value: currentWeek ? Math.max(0, term.totalWeeks - currentWeek) : '–', color: 'text-blue-400', ring: 'ring-blue-500/20' },
               { label: 'Term Progress', value: `${Math.round(progress)}%`, color: 'text-emerald-400', ring: 'ring-emerald-500/20' },
             ].map(({ label, value, color, ring }) => (
-              <div key={label} className={`rounded-2xl p-5 border border-white/10 bg-[#2b2d31] ring-1 ${ring} flex flex-col items-center justify-center text-center`}>
-                <p className={`text-3xl font-black ${color}`}>{value}</p>
-                <p className="text-xs text-gray-500 mt-1 font-medium">{label}</p>
+              <div key={label} className={`rounded-2xl py-8 px-4 border border-white/10 bg-[#2b2d31] ring-1 ${ring} flex flex-col items-center justify-center text-center`}>
+                <p className={`text-5xl font-black ${color}`}>{value}</p>
+                <p className="text-sm text-gray-500 mt-3 font-medium">{label}</p>
               </div>
             ))}
           </div>
