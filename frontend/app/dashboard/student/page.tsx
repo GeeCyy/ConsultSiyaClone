@@ -337,7 +337,8 @@ export default function StudentDashboard() {
       api.get('/api/consultations', token!),
       api.get('/api/auth/profile', token!),
     ]);
-    setSchedules(Array.isArray(sched) ? sched : []);
+    const today = new Date().toISOString().slice(0, 10);
+    setSchedules((Array.isArray(sched) ? sched : []).filter(s => !s.date || s.date >= today));
     setConsultations(Array.isArray(consult) ? consult : []);
     if (!prof.error) {
       setProfile({
@@ -484,6 +485,8 @@ export default function StudentDashboard() {
   };
 
   const activeConsults = consultations.filter(c => c.status === 'pending' || c.status === 'confirmed').length;
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const upcomingConsultations = consultations.filter(c => c.date >= todayStr);
 
   const natureLabel = (c: Consultation) => {
     const items = parseNature(c.nature_of_advising);
@@ -867,17 +870,17 @@ export default function StudentDashboard() {
           <div className="max-w-3xl mx-auto px-8 py-8">
             <div className="mb-7">
               <h1 className="text-white text-2xl font-bold">My Consultations</h1>
-              <p className="text-gray-500 text-sm mt-1">{consultations.length} total · {activeConsults} active</p>
+              <p className="text-gray-500 text-sm mt-1">{upcomingConsultations.length} upcoming · {activeConsults} active</p>
             </div>
 
-            {consultations.length === 0 ? (
+            {upcomingConsultations.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-24 rounded-2xl border border-white/5 bg-[#161616]">
-                <p className="text-gray-400 font-medium text-sm">No consultations yet</p>
+                <p className="text-gray-400 font-medium text-sm">No upcoming consultations</p>
                 <p className="text-gray-600 text-xs mt-1">Book a slot to get started</p>
               </div>
             ) : (
               <div className="space-y-3">
-                {consultations.map(c => (
+                {upcomingConsultations.map(c => (
                   <div key={c.id} className="rounded-2xl border border-white/5 bg-[#161616] p-5 hover:border-white/10 transition-colors">
                     <div className="flex items-start gap-4">
                       <Avatar name={c.professor_name} />

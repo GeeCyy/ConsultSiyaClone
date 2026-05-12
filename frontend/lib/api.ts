@@ -27,6 +27,9 @@ export const api = {
   patch: (endpoint: string, body: object, token?: string) =>
     request(endpoint, { method: 'PATCH', body: JSON.stringify(body) }, token),
 
+  put: (endpoint: string, body: object, token?: string) =>
+    request(endpoint, { method: 'PUT', body: JSON.stringify(body) }, token),
+
   delete: (endpoint: string, token?: string) =>
     request(endpoint, { method: 'DELETE' }, token),
 };

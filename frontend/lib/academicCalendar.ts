@@ -41,6 +41,25 @@ export const CURRENT_TERM: TermConfig = {
   },
 };
 
+// Raw shape returned by GET /api/settings/term
+export type RawTermConfig = {
+  term_label: string;
+  term_start: string;
+  term_total_weeks: string;
+  term_midterm_week: string;
+  term_finals_week: string;
+};
+
+export function buildTermFromConfig(raw: RawTermConfig): TermConfig {
+  return {
+    label: raw.term_label,
+    start: new Date(raw.term_start + 'T00:00:00'),
+    totalWeeks: parseInt(raw.term_total_weeks, 10),
+    midtermWeek: parseInt(raw.term_midterm_week, 10),
+    finalsWeek: parseInt(raw.term_finals_week, 10),
+  };
+}
+
 export function getAcademicWeek(term: TermConfig, date: Date = new Date()): number | null {
   const msPerWeek = 7 * 24 * 60 * 60 * 1000;
   const diff = date.getTime() - term.start.getTime();

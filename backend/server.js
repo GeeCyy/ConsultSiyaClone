@@ -15,7 +15,7 @@ const app = express();
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
   next();
@@ -125,4 +125,15 @@ app.listen(PORT, '0.0.0.0', () => {
   `)
     .then(() => console.log('[startup] user_calendar_notes table ready'))
     .catch(err => console.error('[startup] user_calendar_notes migration failed:', err.message));
+
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key        VARCHAR(100) PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+    .then(() => console.log('[startup] system_settings table ready'))
+    .catch(err => console.error('[startup] system_settings migration failed:', err.message));
 });

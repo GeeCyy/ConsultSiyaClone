@@ -400,4 +400,60 @@ router.put('/system', authenticate, authorize('admin'), async (req, res) => {
   }
 });
 
+// ── GET /api/settings/term ────────────────────────────────────────────────────
+const TERM_DEFAULTS = {
+  term_label: '3rd Trimester, A.Y. 2025–2026',
+  term_start: '2026-04-02',
+  term_total_weeks: '14',
+  term_midterm_week: '7',
+  term_finals_week: '13',
+};
+const TERM_KEYS = Object.keys(TERM_DEFAULTS);
+
+router.get('/term', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT key, value FROM system_settings WHERE key = ANY($1)`,
+      [TERM_KEYS]
+    );
+    const settings = { ...TERM_DEFAULTS };
+    result.rows.forEach(row => { settings[row.key] = row.value; });
+    res.json(settings);
+  } catch (err) {
+    if (err.code === '42P01') return res.json(TERM_DEFAULTS);
+    console.error('[Settings GET /term]', err.message);
+    res.status(500).json({ error: 'Failed to fetch term settings.' });
+  }
+});
+
+// ── PUT /api/settings/term (admin only) ───────────────────────────────────────
+router.put('/term', authenticate, authorize('admin'), async (req, res) => {
+  const updates = req.body;
+  const { id } = req.user;
+  if (!TERM_KEYS.some(k => updates[k] !== undefined)) {
+    return res.status(400).json({ error: 'No valid term fields provided.' });
+  }
+  try {
+    for (const key of TERM_KEYS) {
+      if (updates[key] === undefined) continue;
+      await pool.query(
+        `INSERT INTO system_settings (key, value, updated_by, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (key) DO UPDATE SET
+           value = EXCLUDED.value,
+           updated_by = EXCLUDED.updated_by,
+           updated_at = NOW()`,
+        [key, String(updates[key]), id]
+      );
+    }
+    res.json({ message: 'Term settings updated.' });
+  } catch (err) {
+    console.error('[Settings PUT /term]', err.message);
+    if (err.code === '42P01') {
+      return res.status(503).json({ error: 'Settings table not ready. Restart the server and try again.' });
+    }
+    res.status(500).json({ error: 'Failed to update term settings.' });
+  }
+});
+
 module.exports = router;

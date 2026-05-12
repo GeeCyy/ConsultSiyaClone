@@ -309,6 +309,7 @@ export default function ProfessorDashboard() {
   const [tab, setTab] = useState<Tab>('consultations');
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [pastSlotsOpen, setPastSlotsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
@@ -921,28 +922,42 @@ export default function ProfessorDashboard() {
             )}
 
             {/* Slot availability summary */}
-            <div className="mt-8">
-              <p className="text-gray-600 text-[10px] font-semibold uppercase tracking-widest mb-3">Your Slots</p>
-              <div className="space-y-2">
-                {[...schedules]
-                  .sort((a, b) => DAY_ORDER.indexOf(a.day) - DAY_ORDER.indexOf(b.day) || a.time_start.localeCompare(b.time_start))
-                  .map(s => {
-                    const booked = Number(s.upcoming_count) > 0;
-                    return (
-                      <div key={s.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-white/5 bg-[#161616]">
-                        <div className="flex items-center gap-3">
-                          <span className={`w-2 h-2 rounded-full ${booked ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                          <span className="text-white text-sm w-24">{s.day}</span>
-                          <span className="text-gray-400 text-sm font-mono">{s.time_start?.slice(0, 5)} – {s.time_end?.slice(0, 5)}</span>
-                        </div>
-                        <span className={`text-xs ${booked ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {booked ? `${s.upcoming_count} booked` : 'Available'}
-                        </span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
+            {(() => {
+              const todayStr = new Date().toISOString().slice(0, 10);
+              const upcomingSlots = schedules
+                .filter(s => s.date && s.date >= todayStr)
+                .sort((a, b) => (a.date ?? '').localeCompare(b.date ?? '') || a.time_start.localeCompare(b.time_start));
+              return (
+                <div className="mt-8">
+                  <p className="text-gray-600 text-[10px] font-semibold uppercase tracking-widest mb-3">Your Slots ({upcomingSlots.length})</p>
+                  {upcomingSlots.length === 0 ? (
+                    <div className="text-center py-10 rounded-2xl border border-white/5 bg-[#161616]">
+                      <p className="text-gray-500 text-sm">No slots created yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {upcomingSlots.map(s => {
+                        const booked = Number(s.upcoming_count) > 0;
+                        return (
+                          <div key={s.id} className="flex items-center justify-between px-4 py-3 rounded-xl border border-white/5 bg-[#161616]">
+                            <div className="flex items-center gap-3">
+                              <span className={`w-2 h-2 rounded-full ${booked ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                              <span className="text-white text-sm">
+                                {new Date(s.date! + 'T12:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' })}
+                              </span>
+                              <span className="text-gray-400 text-sm font-mono">{s.time_start?.slice(0, 5)} – {s.time_end?.slice(0, 5)}</span>
+                            </div>
+                            <span className={`text-xs ${booked ? 'text-amber-400' : 'text-emerald-400'}`}>
+                              {booked ? `${s.upcoming_count} booked` : 'Available'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
         ) : tab === 'schedules' ? (
@@ -1021,52 +1036,89 @@ export default function ProfessorDashboard() {
               </button>
             </div>
 
-            <p className="text-gray-600 text-[10px] font-semibold uppercase tracking-widest mb-3">Your Slots ({schedules.length})</p>
-            {schedules.length === 0 ? (
-              <div className="text-center py-12 rounded-2xl border border-white/5 bg-[#161616]">
-                <p className="text-gray-500 text-sm">No slots yet. Add one above.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {schedules.map(s => {
-                  const hasBookings = Number(s.upcoming_count) > 0;
-                  return (
-                    <div key={s.id} className="rounded-xl border border-white/5 bg-[#161616] overflow-hidden hover:border-white/10 transition-colors">
-                      <div className="flex items-center justify-between px-4 py-3.5">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${hasBookings ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                          <div>
-                            <span className="text-white text-sm font-medium">
-                              {s.date
-                                ? new Date(s.date + 'T12:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
-                                : s.day}
-                            </span>
-                          </div>
-                          <span className="text-gray-400 text-sm font-mono">
-                            {(s.time_ranges?.length ? s.time_ranges : [{ time_start: s.time_start, time_end: s.time_end }])
-                              .map(r => `${r.time_start?.slice(0, 5)}–${r.time_end?.slice(0, 5)}`).join(', ')}
+            {(() => {
+              const todayStr = new Date().toISOString().slice(0, 10);
+              const activeSlots = schedules.filter(s => s.date && s.date >= todayStr);
+              const pastSlots   = schedules.filter(s => s.date && s.date < todayStr)
+                .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+
+              const renderSlot = (s: Schedule, dimmed = false) => {
+                const hasBookings = Number(s.upcoming_count) > 0;
+                return (
+                  <div key={s.id} className={`rounded-xl border border-white/5 bg-[#161616] overflow-hidden transition-colors ${dimmed ? 'opacity-50' : 'hover:border-white/10'}`}>
+                    <div className="flex items-center justify-between px-4 py-3.5">
+                      <div className="flex items-center gap-4">
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dimmed ? 'bg-gray-600' : hasBookings ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                        <div>
+                          <span className={`text-sm font-medium ${dimmed ? 'text-gray-500' : 'text-white'}`}>
+                            {s.date
+                              ? new Date(s.date + 'T12:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+                              : s.day}
                           </span>
-                          {s.location && <span className="text-gray-600 text-xs">{s.location}</span>}
                         </div>
-                        <div className="flex items-center gap-2">
+                        <span className="text-gray-400 text-sm font-mono">
+                          {(s.time_ranges?.length ? s.time_ranges : [{ time_start: s.time_start, time_end: s.time_end }])
+                            .map(r => `${r.time_start?.slice(0, 5)}–${r.time_end?.slice(0, 5)}`).join(', ')}
+                        </span>
+                        {s.location && <span className="text-gray-600 text-xs">{s.location}</span>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!dimmed && (
                           <span className={`text-xs ${hasBookings ? 'text-amber-500' : 'text-emerald-500'}`}>
                             {hasBookings ? `${s.upcoming_count} upcoming` : 'Available'}
                           </span>
-                          <button onClick={() => openEditModal(s)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:bg-blue-500/10 transition-colors">
-                            Edit
-                          </button>
-                          <button onClick={() => handleDeleteSchedule(s.id)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors">
-                            Remove
-                          </button>
-                        </div>
+                        )}
+                        <button onClick={() => openEditModal(s)}
+                          className="px-2.5 py-1 rounded-lg text-xs text-blue-400 hover:bg-blue-500/10 transition-colors">
+                          Edit
+                        </button>
+                        <button onClick={() => handleDeleteSchedule(s.id)}
+                          className="px-2.5 py-1 rounded-lg text-xs text-red-400 hover:bg-red-500/10 transition-colors">
+                          Remove
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {/* ── Active slots ── */}
+                  <p className="text-gray-600 text-[10px] font-semibold uppercase tracking-widest mb-3">
+                    Your Slots ({activeSlots.length})
+                  </p>
+                  {activeSlots.length === 0 ? (
+                    <div className="text-center py-12 rounded-2xl border border-white/5 bg-[#161616]">
+                      <p className="text-gray-500 text-sm">No slots created yet.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">{activeSlots.map(s => renderSlot(s))}</div>
+                  )}
+
+                  {/* ── Past slots (collapsible) ── */}
+                  {pastSlots.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        onClick={() => setPastSlotsOpen(o => !o)}
+                        className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-widest text-gray-700 hover:text-gray-500 transition-colors mb-2"
+                      >
+                        <svg
+                          className={`w-3 h-3 transition-transform duration-200 ${pastSlotsOpen ? 'rotate-90' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                        Past Slots ({pastSlots.length})
+                      </button>
+                      {pastSlotsOpen && (
+                        <div className="space-y-2">{pastSlots.map(s => renderSlot(s, true))}</div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </div>
 
         ) : tab === 'history' ? (

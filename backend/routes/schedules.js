@@ -43,7 +43,7 @@ router.post('/', authenticate, authorize('professor'), async (req, res) => {
   }
 });
 
-// Get all schedules visible to students
+// Get all schedules visible to students (only today or future dated slots)
 router.get('/', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
@@ -52,6 +52,7 @@ router.get('/', authenticate, async (req, res) => {
               p.id AS professor_id, p.full_name AS professor_name, p.department
        FROM schedules s
        JOIN professors p ON s.professor_id = p.id
+       WHERE s.date IS NULL OR s.date >= CURRENT_DATE
        ORDER BY s.date NULLS LAST, s.day, s.time_start`
     );
     res.json(result.rows);

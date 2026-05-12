@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import {
   CURRENT_TERM,
+  buildTermFromConfig,
   getAcademicWeek,
   getWeekMode,
   daysUntil,
   getTermDates,
   getTermProgress,
   type CalendarOverride,
+  type TermConfig,
+  type RawTermConfig,
 } from '@/lib/academicCalendar';
 import { fetchPhHolidays, type PhHoliday } from '@/lib/phHolidays';
 
@@ -223,6 +226,19 @@ export default function AdminDashboard() {
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
+  // ── Term configuration ────────────────────────────────────────────────────────
+  const [term, setTerm] = useState<TermConfig>(CURRENT_TERM);
+  const [termForm, setTermForm] = useState<RawTermConfig>({
+    term_label: CURRENT_TERM.label,
+    term_start: CURRENT_TERM.start.toISOString().slice(0, 10),
+    term_total_weeks: String(CURRENT_TERM.totalWeeks),
+    term_midterm_week: String(CURRENT_TERM.midtermWeek),
+    term_finals_week: String(CURRENT_TERM.finalsWeek),
+  });
+  const [termSaving, setTermSaving] = useState(false);
+  const [termError, setTermError] = useState<string | null>(null);
+  const [termSuccess, setTermSuccess] = useState(false);
+
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') return localStorage.getItem('consultsiya-theme') !== 'light';
     return true;
@@ -270,7 +286,7 @@ export default function AdminDashboard() {
   }, [calSelectedDates]);
 
   const fetchAll = async () => {
-    const [consultData, schedData, profData, usersData, adminsData, calData, annData] = await Promise.all([
+    const [consultData, schedData, profData, usersData, adminsData, calData, annData, termData] = await Promise.all([
       api.get('/api/consultations', token!),
       api.get('/api/schedules/all', token!),
       api.get('/api/reports/professors', token!),
@@ -278,6 +294,7 @@ export default function AdminDashboard() {
       api.get('/api/admin/admins', token!),
       api.get('/api/calendar', token!),
       fetch(`${API_URL}/api/announcements`).then(r => r.ok ? r.json() : []).catch(() => []),
+      api.get('/api/settings/term', token!),
     ]);
 
     const list: Consultation[] = Array.isArray(consultData) ? consultData : [];
@@ -288,6 +305,11 @@ export default function AdminDashboard() {
     setAdmins(Array.isArray(adminsData) ? adminsData : []);
     setCalOverrides(Array.isArray(calData) ? calData : []);
     setAnnouncements(Array.isArray(annData) ? annData : []);
+    if (termData && !termData.error) {
+      const built = buildTermFromConfig(termData as RawTermConfig);
+      setTerm(built);
+      setTermForm(termData as RawTermConfig);
+    }
     setLoading(false);
   };
 
@@ -577,14 +599,14 @@ export default function AdminDashboard() {
 
   // ── Term stats (used by Home tab) ────────────────────────────────────────────
   const now = new Date();
-  const currentWeek = getAcademicWeek(CURRENT_TERM, now);
-  const currentMode = currentWeek ? getWeekMode(CURRENT_TERM, currentWeek) : null;
-  const { finalsDate, endDate } = getTermDates(CURRENT_TERM);
+  const currentWeek = getAcademicWeek(term, now);
+  const currentMode = currentWeek ? getWeekMode(term, currentWeek) : null;
+  const { finalsDate, endDate } = getTermDates(term);
   const daysToFinals = daysUntil(finalsDate, now);
   const daysToEnd = daysUntil(endDate, now);
-  const termProgress = getTermProgress(CURRENT_TERM, now);
+  const termProgress = getTermProgress(term, now);
   const nextWeek = currentWeek ? currentWeek + 1 : null;
-  const nextWeekMode = nextWeek && nextWeek <= CURRENT_TERM.totalWeeks ? getWeekMode(CURRENT_TERM, nextWeek) : null;
+  const nextWeekMode = nextWeek && nextWeek <= term.totalWeeks ? getWeekMode(term, nextWeek) : null;
 
   const navItems: { key: Tab; label: string; count?: number; icon: React.ReactNode }[] = [
     {
@@ -1235,7 +1257,7 @@ export default function AdminDashboard() {
               <>
                 <div className="mb-7">
                   <h1 className="text-white text-2xl font-bold">Dashboard</h1>
-                  <p className="text-gray-500 text-sm mt-1">{CURRENT_TERM.label} · Admin Overview</p>
+                  <p className="text-gray-500 text-sm mt-1">{term.label} · Admin Overview</p>
                 </div>
 
                 {/* Term stats */}
@@ -1248,7 +1270,7 @@ export default function AdminDashboard() {
                     <div>
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Current Academic Week</p>
                       <h2 className="text-2xl font-bold text-white">
-                        {currentWeek ? `Week ${currentWeek} of ${CURRENT_TERM.totalWeeks}` : 'Term Not Active'}
+                        {currentWeek ? `Week ${currentWeek} of ${term.totalWeeks}` : 'Term Not Active'}
                       </h2>
                       {currentMode && (
                         <span className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold ${
@@ -1285,7 +1307,7 @@ export default function AdminDashboard() {
                   {[
                     { label: 'Days to Finals', value: daysToFinals, color: 'text-amber-400', ring: 'ring-amber-500/20' },
                     { label: 'Days to End', value: daysToEnd, color: 'text-red-400', ring: 'ring-red-500/20' },
-                    { label: 'Weeks Left', value: currentWeek ? Math.max(0, CURRENT_TERM.totalWeeks - currentWeek) : '–', color: 'text-blue-400', ring: 'ring-blue-500/20' },
+                    { label: 'Weeks Left', value: currentWeek ? Math.max(0, term.totalWeeks - currentWeek) : '–', color: 'text-blue-400', ring: 'ring-blue-500/20' },
                     { label: 'Progress', value: `${Math.round(termProgress)}%`, color: 'text-emerald-400', ring: 'ring-emerald-500/20' },
                   ].map(({ label, value, color, ring }) => (
                     <div key={label} className={`rounded-2xl p-5 border border-white/5 bg-[#161616] ring-1 ${ring} flex flex-col items-center justify-center text-center`}>
@@ -1299,24 +1321,109 @@ export default function AdminDashboard() {
                 <div className="rounded-2xl p-6 border border-white/5 bg-[#161616] mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm font-semibold text-white">Term Progress</p>
-                    <p className="text-xs text-gray-500">{CURRENT_TERM.label}</p>
+                    <p className="text-xs text-gray-500">{term.label}</p>
                   </div>
                   <div className="flex justify-between text-[10px] text-gray-600 mb-1">
                     <span>Start</span>
-                    <span>Midterm (W{CURRENT_TERM.midtermWeek})</span>
-                    <span>Finals (W{CURRENT_TERM.finalsWeek})</span>
+                    <span>Midterm (W{term.midtermWeek})</span>
+                    <span>Finals (W{term.finalsWeek})</span>
                     <span>End</span>
                   </div>
                   <div className="relative h-3 rounded-full overflow-hidden bg-white/5">
                     <div className="absolute left-0 top-0 h-full rounded-full transition-all duration-700 bg-[#CC0000]" style={{ width: `${termProgress}%` }} />
-                    <div className="absolute top-0 h-full w-0.5 bg-amber-400/60" style={{ left: `${((CURRENT_TERM.midtermWeek - 1) / CURRENT_TERM.totalWeeks) * 100}%` }} />
-                    <div className="absolute top-0 h-full w-0.5 bg-orange-400/60" style={{ left: `${((CURRENT_TERM.finalsWeek - 1) / CURRENT_TERM.totalWeeks) * 100}%` }} />
+                    <div className="absolute top-0 h-full w-0.5 bg-amber-400/60" style={{ left: `${((term.midtermWeek - 1) / term.totalWeeks) * 100}%` }} />
+                    <div className="absolute top-0 h-full w-0.5 bg-orange-400/60" style={{ left: `${((term.finalsWeek - 1) / term.totalWeeks) * 100}%` }} />
                   </div>
                   {currentWeek && (
                     <p className="text-xs text-gray-500 mt-2 text-center">
-                      Currently at <span className="text-white font-semibold">Week {currentWeek}</span> of {CURRENT_TERM.totalWeeks} weeks
+                      Currently at <span className="text-white font-semibold">Week {currentWeek}</span> of {term.totalWeeks} weeks
                     </p>
                   )}
+                </div>
+
+                {/* ── Term Configuration ── */}
+                <div className="rounded-2xl border border-white/5 bg-[#161616] p-6 mb-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <div>
+                      <p className="text-white font-semibold text-sm">Term Configuration</p>
+                      <p className="text-gray-500 text-xs mt-0.5">Edit the current academic term settings</p>
+                    </div>
+                    {termSuccess && <span className="text-emerald-400 text-xs font-medium">Saved successfully</span>}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="md:col-span-2">
+                      <label className="text-gray-500 text-xs mb-1.5 block">Term Label</label>
+                      <input
+                        type="text"
+                        value={termForm.term_label}
+                        onChange={e => setTermForm(f => ({ ...f, term_label: e.target.value }))}
+                        placeholder="e.g. 3rd Trimester, A.Y. 2025–2026"
+                        className="w-full px-3 py-2 rounded-lg text-white text-sm bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50 placeholder-gray-600"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1.5 block">Term Start Date</label>
+                      <input
+                        type="date"
+                        value={termForm.term_start}
+                        onChange={e => setTermForm(f => ({ ...f, term_start: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg text-white text-sm bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50 [color-scheme:dark]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1.5 block">Total Weeks</label>
+                      <input
+                        type="number" min={1} max={52}
+                        value={termForm.term_total_weeks}
+                        onChange={e => setTermForm(f => ({ ...f, term_total_weeks: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg text-white text-sm bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1.5 block">Midterm Week</label>
+                      <input
+                        type="number" min={1} max={parseInt(termForm.term_total_weeks) || 52}
+                        value={termForm.term_midterm_week}
+                        onChange={e => setTermForm(f => ({ ...f, term_midterm_week: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg text-white text-sm bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-gray-500 text-xs mb-1.5 block">Finals Week</label>
+                      <input
+                        type="number" min={1} max={parseInt(termForm.term_total_weeks) || 52}
+                        value={termForm.term_finals_week}
+                        onChange={e => setTermForm(f => ({ ...f, term_finals_week: e.target.value }))}
+                        className="w-full px-3 py-2 rounded-lg text-white text-sm bg-[#0f0f0f] border border-white/10 focus:outline-none focus:border-[#CC0000]/50"
+                      />
+                    </div>
+                  </div>
+                  {termError && <p className="text-red-400 text-xs mt-3">{termError}</p>}
+                  <div className="flex justify-end mt-4">
+                    <button
+                      onClick={async () => {
+                        setTermSaving(true); setTermError(null); setTermSuccess(false);
+                        const tw = parseInt(termForm.term_total_weeks);
+                        const mw = parseInt(termForm.term_midterm_week);
+                        const fw = parseInt(termForm.term_finals_week);
+                        if (!termForm.term_label.trim()) { setTermError('Term label is required.'); setTermSaving(false); return; }
+                        if (!termForm.term_start) { setTermError('Start date is required.'); setTermSaving(false); return; }
+                        if (isNaN(tw) || tw < 1) { setTermError('Total weeks must be a positive number.'); setTermSaving(false); return; }
+                        if (isNaN(mw) || mw < 1 || mw >= fw) { setTermError('Midterm week must be before finals week.'); setTermSaving(false); return; }
+                        if (isNaN(fw) || fw < 1 || fw > tw) { setTermError('Finals week must be within total weeks.'); setTermSaving(false); return; }
+                        const result = await api.put('/api/settings/term', termForm, token!);
+                        setTermSaving(false);
+                        if (result?.error) { setTermError(result.error); return; }
+                        setTerm(buildTermFromConfig(termForm));
+                        setTermSuccess(true);
+                        setTimeout(() => setTermSuccess(false), 3000);
+                      }}
+                      disabled={termSaving}
+                      className="px-4 py-2 rounded-lg text-sm font-medium bg-[#CC0000] text-white hover:bg-[#aa0000] transition-colors disabled:opacity-50"
+                    >
+                      {termSaving ? 'Saving…' : 'Save Term Settings'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Calendar + Announcements */}

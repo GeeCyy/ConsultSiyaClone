@@ -5,12 +5,15 @@ import { useRouter } from 'next/navigation';
 import DashboardShell from '@/components/DashboardShell';
 import {
   CURRENT_TERM,
+  buildTermFromConfig,
   getAcademicWeek,
   getWeekMode,
   daysUntil,
   getTermDates,
   getTermProgress,
   type CalendarOverride,
+  type TermConfig,
+  type RawTermConfig,
 } from '@/lib/academicCalendar';
 import { fetchPhHolidays, type PhHoliday } from '@/lib/phHolidays';
 
@@ -70,10 +73,12 @@ function CalendarView({
   overrides = [],
   phHolidays = [],
   token,
+  term,
 }: {
   overrides?: CalendarOverride[];
   phHolidays?: PhHoliday[];
   token?: string | null;
+  term: TermConfig;
 }) {
   const [today, setToday] = useState<Date | null>(null);
   const [viewYear, setViewYear] = useState(() => new Date().getFullYear());
@@ -145,7 +150,7 @@ function CalendarView({
     }
   };
 
-  const handleDeleteNote = async (noteId: number, dateStr: string) => {
+  const handleDeleteNote = async (noteId: number, _dateStr: string) => {
     if (!token) return;
     const res = await fetch(`${API_BASE}/api/calendar/notes/${noteId}`, {
       method: 'DELETE',
@@ -188,7 +193,7 @@ function CalendarView({
 
           const isToday = today ? date.getTime() === today.getTime() : false;
           const isSelected = selected?.getTime() === date.getTime();
-          const week = getAcademicWeek(CURRENT_TERM, date);
+          const week = getAcademicWeek(term, date);
           const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
           const blocked = blockedSet.has(dateStr);
           const exam = !!week && examWeekSet.has(week);
@@ -261,7 +266,7 @@ function CalendarView({
       {/* Selected date panel */}
       {selected && (() => {
         const selStr = `${selected.getFullYear()}-${String(selected.getMonth() + 1).padStart(2, '0')}-${String(selected.getDate()).padStart(2, '0')}`;
-        const w = getAcademicWeek(CURRENT_TERM, selected);
+        const w = getAcademicWeek(term, selected);
         const isBlockedByAdmin = blockedSet.has(selStr);
         const isWeekendDay = selected.getDay() === 0 || selected.getDay() === 6;
         const effectiveExam = !!w && examWeekSet.has(w);
@@ -294,7 +299,7 @@ function CalendarView({
               {!isBlockedByAdmin && isWeekendDay && <p className="text-gray-400 text-xs mt-1">Weekend / No class</p>}
               {!isBlockedByAdmin && !isWeekendDay && w && (
                 <p className="text-gray-300 text-xs mt-1">
-                  Week {w} of {CURRENT_TERM.totalWeeks}{effectiveMode ? ` — ${effectiveMode}` : ''}{effectiveExam ? ' · Exam Week' : ''}
+                  Week {w} of {term.totalWeeks}{effectiveMode ? ` — ${effectiveMode}` : ''}{effectiveExam ? ' · Exam Week' : ''}
                 </p>
               )}
               {!isBlockedByAdmin && !isWeekendDay && !w && <p className="text-gray-500 text-xs mt-1">Outside current term</p>}
@@ -391,9 +396,12 @@ export default function HomePage() {
   const [mounted, setMounted] = useState(false);
   const [role, setRole] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [term, setTerm] = useState<TermConfig>(CURRENT_TERM);
   const [calOverrides, setCalOverrides] = useState<CalendarOverride[]>([]);
   const [phHolidays, setPhHolidays] = useState<PhHoliday[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [firstName, setFirstName] = useState<string | null>(null);
+  const [consultations, setConsultations] = useState<{ date: string; time?: string; status: string }[] | null>(null);
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') return localStorage.getItem('consultsiya-theme') !== 'light';
     return true;
@@ -409,6 +417,7 @@ export default function HomePage() {
     const token = localStorage.getItem('token');
     const r = localStorage.getItem('role');
     if (!token) { router.push('/login'); return; }
+    if (r === 'admin') { router.push('/dashboard/admin'); return; }
     setToken(token);
     setRole(r);
     setMounted(true);
@@ -427,6 +436,26 @@ export default function HomePage() {
       .then(data => { if (Array.isArray(data)) setAnnouncements(data); })
       .catch(() => {});
 
+    // Fetch profile to get first name for greeting
+    fetch(`${base}/api/settings/profile`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.full_name) setFirstName(data.full_name.trim().split(/\s+/)[0]);
+      })
+      .catch(() => {});
+
+    // Fetch consultations for greeting subtext
+    fetch(`${base}/api/consultations`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : [])
+      .then(data => { if (Array.isArray(data)) setConsultations(data); })
+      .catch(() => {});
+
+    // Fetch dynamic term config so admin-configured settings are reflected here
+    fetch(`${base}/api/settings/term`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data && !data.error) setTerm(buildTermFromConfig(data as RawTermConfig)); })
+      .catch(() => {});
+
     // Fetch PH public holidays for the current and next year (covers academic terms spanning year boundary)
     const year = new Date().getFullYear();
     Promise.all([fetchPhHolidays(year), fetchPhHolidays(year + 1)]).then(([a, b]) => {
@@ -436,16 +465,71 @@ export default function HomePage() {
 
   if (!mounted) return null;
 
+  // ── Greeting helpers ───────────────────────────────────────────────────────
+  const greetingHour = new Date().getHours();
+  const greetingWord =
+    greetingHour < 12 ? 'Good morning' :
+    greetingHour < 18 ? 'Good afternoon' :
+                        'Good evening';
+
+  type GreetLine = { text: string; type: 'normal' | 'cta' };
+  const greetingLines: GreetLine[] = (() => {
+    if (consultations === null) return [];
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const today = new Date();
+    const dow = today.getDay();
+    const mondayOffset = dow === 0 ? -6 : 1 - dow;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + mondayOffset);
+    const mondayStr = monday.toISOString().slice(0, 10);
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const sundayStr = sunday.toISOString().slice(0, 10);
+
+    const active = consultations.filter(c => c.status === 'pending' || c.status === 'confirmed');
+    const upcoming = active
+      .filter(c => c.date >= todayStr)
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.time ?? '').localeCompare(b.time ?? ''));
+    const thisWeek = upcoming.filter(c => c.date >= mondayStr && c.date <= sundayStr);
+
+    const fmtDate = (d: string) =>
+      new Date(d.slice(0, 10) + 'T12:00:00').toLocaleDateString('en-PH', {
+        weekday: 'long', month: 'long', day: 'numeric',
+      });
+
+    const lines: GreetLine[] = [];
+
+    if (thisWeek.length > 0) {
+      const noun = role === 'professor' ? 'student consultation' : 'consultation';
+      lines.push({ type: 'normal', text: `You have ${thisWeek.length} ${noun}${thisWeek.length !== 1 ? 's' : ''} this week` });
+    }
+
+    if (upcoming.length > 0) {
+      lines.push({ type: 'normal', text: `Your next consultation is on ${fmtDate(upcoming[0].date)}` });
+    }
+
+    if (lines.length === 0) {
+      lines.push(
+        role === 'professor'
+          ? { type: 'normal', text: 'No consultations scheduled this week' }
+          : { type: 'cta',    text: 'No upcoming consultations — book a slot today' }
+      );
+    }
+
+    return lines;
+  })();
+
   const now = new Date();
-  const currentWeek = getAcademicWeek(CURRENT_TERM, now);
+  const currentWeek = getAcademicWeek(term, now);
   const calModeMap = new Map(calOverrides.filter(o => o.type === 'mode_override' && o.week_number && o.value).map(o => [o.week_number!, o.value!]));
-  const mode = currentWeek ? (calModeMap.get(currentWeek) ?? getWeekMode(CURRENT_TERM, currentWeek)) : null;
-  const { finalsDate, endDate } = getTermDates(CURRENT_TERM);
+  const mode = currentWeek ? (calModeMap.get(currentWeek) ?? getWeekMode(term, currentWeek)) : null;
+  const { finalsDate, endDate } = getTermDates(term);
   const daysToFinals = daysUntil(finalsDate, now);
   const daysToEnd = daysUntil(endDate, now);
-  const progress = getTermProgress(CURRENT_TERM, now);
+  const progress = getTermProgress(term, now);
   const nextWeek = currentWeek ? currentWeek + 1 : null;
-  const nextMode = nextWeek && nextWeek <= CURRENT_TERM.totalWeeks ? (calModeMap.get(nextWeek) ?? getWeekMode(CURRENT_TERM, nextWeek)) : null;
+  const nextMode = nextWeek && nextWeek <= term.totalWeeks ? (calModeMap.get(nextWeek) ?? getWeekMode(term, nextWeek)) : null;
 
   const navItems = NAV_ITEMS[role ?? ''] ?? [];
   const roleLabel = role ? role.charAt(0).toUpperCase() + role.slice(1) : '';
@@ -492,6 +576,71 @@ export default function HomePage() {
         <main className={`flex-1 overflow-y-auto ${isDark ? '' : 'bg-[#f2f3f5]'}`}>
 
         <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+          {/* ── Greeting card ────────────────────────────────────────────── */}
+          <style>{`
+            @keyframes greetFadeInUp {
+              from { opacity: 0; transform: translateY(-10px); }
+              to   { opacity: 1; transform: translateY(0);     }
+            }
+            .greet-card { animation: greetFadeInUp 0.45s cubic-bezier(0.22,1,0.36,1) both; }
+          `}</style>
+
+          <div className={`greet-card relative rounded-2xl overflow-hidden border transition-all duration-500 ${
+            isDark
+              ? 'border-white/[0.07] bg-gradient-to-br from-[#1c1c1c] to-[#111] hover:border-white/[0.13] hover:shadow-[0_0_48px_rgba(204,0,0,0.08)]'
+              : 'border-gray-200 bg-gradient-to-br from-white to-gray-50 shadow-sm hover:border-gray-300 hover:shadow-[0_4px_24px_rgba(0,0,0,0.08)]'
+          }`}>
+            {/* Red left accent */}
+            <div className="absolute inset-y-0 left-0 w-[3px] bg-gradient-to-b from-[#CC0000]/50 via-[#CC0000] to-[#CC0000]/40" />
+
+            <div className="flex items-center justify-between pl-9 pr-6 py-6">
+              {/* Left: greeting text */}
+              <div className="flex-1 min-w-0">
+                <h2 className={`text-[28px] font-bold leading-tight tracking-tight ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                  {greetingWord}{firstName ? `, ${firstName}` : ''} 👋
+                </h2>
+                <div className="mt-2 flex flex-col gap-1">
+                  {greetingLines.length === 0 ? (
+                    <span className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>Have a great day!</span>
+                  ) : greetingLines.map((line, i) =>
+                    line.type === 'cta' ? (
+                      <button
+                        key={i}
+                        onClick={() => router.push('/dashboard/student?view=book')}
+                        className="text-sm text-[#CC0000] hover:text-[#ff3333] text-left font-medium w-fit transition-colors"
+                      >
+                        {line.text} →
+                      </button>
+                    ) : (
+                      <span key={i} className={`text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>{line.text}</span>
+                    )
+                  )}
+                </div>
+              </div>
+
+              {/* Right: decorative illustration */}
+              <div className="flex-shrink-0 w-28 h-20 relative ml-4 select-none pointer-events-none" aria-hidden>
+                {/* Soft red glow behind icons */}
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-24 h-24 rounded-full bg-[#CC0000]/10 blur-2xl" />
+                {/* Calendar — main icon */}
+                <svg className={`absolute right-2 top-0 w-12 h-12 opacity-20 ${isDark ? 'text-white' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.25}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 9v7.5m-9-6h.008v.008H12v-.008ZM12 15h.008v.008H12V15Zm0 2.25h.008v.008H12v-.008ZM9.75 15h.008v.008H9.75V15Zm0 2.25h.008v.008H9.75v-.008ZM7.5 15h.008v.008H7.5V15Zm0 2.25h.008v.008H7.5v-.008Zm6.75-4.5h.008v.008h-.008v-.008Zm0 2.25h.008v.008h-.008V15Zm0 2.25h.008v.008h-.008v-.008Zm2.25-4.5h.008v.008H16.5v-.008Zm0 2.25h.008v.008H16.5V15Z" />
+                </svg>
+                {/* Book — lower-left, rotated */}
+                <svg className={`absolute left-0 bottom-0 w-9 h-9 opacity-15 -rotate-6 ${isDark ? 'text-white' : 'text-gray-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.25}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" />
+                </svg>
+                {/* Star sparkles */}
+                <svg className={`absolute right-0 bottom-1 w-5 h-5 opacity-20 ${isDark ? 'text-white' : 'text-gray-500'}`} fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+                </svg>
+                <svg className={`absolute left-5 top-0 w-3 h-3 opacity-15 ${isDark ? 'text-white' : 'text-gray-500'}`} fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.563.563 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.563.563 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" />
+                </svg>
+              </div>
+            </div>
+          </div>
+
           {/* ── Hero: current week ────────────────────────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Current week card */}
@@ -503,7 +652,7 @@ export default function HomePage() {
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Current Academic Week</p>
                 <h1 className="text-2xl font-bold text-white">
-                  {currentWeek ? `Week ${currentWeek} of ${CURRENT_TERM.totalWeeks}` : 'Term Not Active'}
+                  {currentWeek ? `Week ${currentWeek} of ${term.totalWeeks}` : 'Term Not Active'}
                 </h1>
                 {mode && (
                   <span className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold ${
@@ -546,7 +695,7 @@ export default function HomePage() {
             {[
               { label: 'Days to Finals', value: daysToFinals, color: 'text-amber-400', ring: 'ring-amber-500/20' },
               { label: 'Days to End of Term', value: daysToEnd, color: 'text-red-400', ring: 'ring-red-500/20' },
-              { label: 'Weeks Remaining', value: currentWeek ? Math.max(0, CURRENT_TERM.totalWeeks - currentWeek) : '–', color: 'text-blue-400', ring: 'ring-blue-500/20' },
+              { label: 'Weeks Remaining', value: currentWeek ? Math.max(0, term.totalWeeks - currentWeek) : '–', color: 'text-blue-400', ring: 'ring-blue-500/20' },
               { label: 'Term Progress', value: `${Math.round(progress)}%`, color: 'text-emerald-400', ring: 'ring-emerald-500/20' },
             ].map(({ label, value, color, ring }) => (
               <div key={label} className={`rounded-2xl p-5 border border-white/10 bg-[#2b2d31] ring-1 ${ring} flex flex-col items-center justify-center text-center`}>
@@ -560,14 +709,14 @@ export default function HomePage() {
           <div className="rounded-2xl p-6 border border-white/10 bg-[#2b2d31]">
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold text-white">Term Progress</p>
-              <p className="text-xs text-gray-500">{CURRENT_TERM.label}</p>
+              <p className="text-xs text-gray-500">{term.label}</p>
             </div>
 
             {/* Milestone labels */}
             <div className="flex justify-between text-[10px] text-gray-600 mb-1">
               <span>Start</span>
-              <span>Midterm (W{CURRENT_TERM.midtermWeek})</span>
-              <span>Finals (W{CURRENT_TERM.finalsWeek})</span>
+              <span>Midterm (W{term.midtermWeek})</span>
+              <span>Finals (W{term.finalsWeek})</span>
               <span>End</span>
             </div>
 
@@ -581,19 +730,19 @@ export default function HomePage() {
               {/* Midterm marker */}
               <div
                 className="absolute top-0 h-full w-0.5 bg-amber-400/60"
-                style={{ left: `${((CURRENT_TERM.midtermWeek - 1) / CURRENT_TERM.totalWeeks) * 100}%` }}
+                style={{ left: `${((term.midtermWeek - 1) / term.totalWeeks) * 100}%` }}
               />
               {/* Finals marker */}
               <div
                 className="absolute top-0 h-full w-0.5 bg-orange-400/60"
-                style={{ left: `${((CURRENT_TERM.finalsWeek - 1) / CURRENT_TERM.totalWeeks) * 100}%` }}
+                style={{ left: `${((term.finalsWeek - 1) / term.totalWeeks) * 100}%` }}
               />
             </div>
 
             {/* Week indicator */}
             {currentWeek && (
               <p className="text-xs text-gray-500 mt-2 text-center">
-                Currently at <span className="text-white font-semibold">Week {currentWeek}</span> of {CURRENT_TERM.totalWeeks} weeks
+                Currently at <span className="text-white font-semibold">Week {currentWeek}</span> of {term.totalWeeks} weeks
               </p>
             )}
           </div>
@@ -603,7 +752,7 @@ export default function HomePage() {
             {/* Calendar */}
             <div className="lg:col-span-3 rounded-2xl p-6 border border-white/10 bg-[#2b2d31]">
               <p className="text-sm font-semibold text-white mb-4">Academic Calendar</p>
-              <CalendarView overrides={calOverrides} phHolidays={phHolidays} token={token} />
+              <CalendarView overrides={calOverrides} phHolidays={phHolidays} token={token} term={term} />
             </div>
 
             {/* Announcements */}
