@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS calendar_overrides (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP;
 
+-- Password reset token (stored in DB, emailed to user, expires in 1 hour)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ;
+
 -- Chatbot: store professor concern-ownership mappings
 CREATE TABLE IF NOT EXISTS professor_responsibilities (
   id SERIAL PRIMARY KEY,

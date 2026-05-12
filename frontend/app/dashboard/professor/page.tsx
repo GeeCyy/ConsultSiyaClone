@@ -311,6 +311,7 @@ export default function ProfessorDashboard() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [pastSlotsOpen, setPastSlotsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false);
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
 
   // Complete modal
@@ -363,12 +364,22 @@ export default function ProfessorDashboard() {
     return () => window.removeEventListener('consultsiya-theme-change', handler);
   }, []);
 
+  // Auth guard — confirm token + role before rendering anything
   useEffect(() => {
-    if (!token) { router.push('/login'); return; }
+    const t = localStorage.getItem('token');
+    const r = localStorage.getItem('role');
+    if (!t) { router.push('/login'); return; }
+    if (r !== 'professor') { router.push('/dashboard/home'); return; }
+    setAuthReady(true);
+  }, [router]);
+
+  // Data fetch — only runs once auth is confirmed
+  useEffect(() => {
+    if (!authReady) return;
     const vParam = new URLSearchParams(window.location.search).get('view');
     if (vParam && (['consultations','calendar','schedules','export','history','profile'] as string[]).includes(vParam)) setTab(vParam as Tab);
     fetchAll();
-  }, []);
+  }, [authReady]);
 
   const fetchAll = async () => {
     const [c, s, prof] = await Promise.all([
@@ -595,20 +606,29 @@ export default function ProfessorDashboard() {
   }, {});
 
   const navItems: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'schedules',     label: 'Manage Schedules', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg> },
+    { key: 'calendar',     label: 'Booking Calendar', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 9v7.5" /></svg> },
     { key: 'consultations', label: 'My Consultations', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" /></svg> },
-    { key: 'calendar', label: 'Booking Calendar', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" /></svg> },
-    { key: 'schedules', label: 'Manage Schedules', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> },
-    { key: 'export', label: 'Export Report', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4-4 4m0 0-4-4m4 4V4" /></svg> },
-    { key: 'history', label: 'History', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> },
-    { key: 'profile', label: 'Profile', icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" /></svg> },
+    { key: 'export',       label: 'Export Report',   icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1m-4-4-4 4m0 0-4-4m4 4V4" /></svg> },
+    { key: 'history',      label: 'History',          icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" /></svg> },
+    { key: 'profile',      label: 'Profile',          icon: <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0zM12 14a7 7 0 0 0-7 7h14a7 7 0 0 0-7-7z" /></svg> },
   ];
+
+  // Block all rendering until token + role are confirmed — prevents flash of wrong layout
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#0c0c0c' }}>
+        <div className="w-8 h-8 border-2 border-[#CC0000] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <DashboardShell weekBadge={false}>
     <div data-theme={isDark ? 'dark' : 'light'} className={`flex h-full ${isDark ? 'bg-[#0c0c0c]' : 'bg-[#f5f5f5]'} overflow-hidden`}>
 
       {/* Sidebar */}
-      <aside className="w-60 flex-shrink-0 flex flex-col bg-[#111] border-r border-white/5">
+      <aside className="w-60 flex-shrink-0 flex flex-col bg-[#111] border-r border-white/5 h-full">
         <div className="px-5 py-5 border-b border-white/5">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-[#CC0000] flex items-center justify-center shadow-lg shadow-red-900/40">
@@ -625,15 +645,13 @@ export default function ProfessorDashboard() {
         <div className="px-5 py-3 border-b border-white/5">
           <span className="text-[10px] font-semibold text-[#CC0000] uppercase tracking-widest">Professor</span>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <NavItem active={false} onClick={() => router.push('/dashboard/home')} label="Home"
             icon={<svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>}
           />
-          <div className="border-t border-white/5 pt-2 mt-1 space-y-1">
-            {navItems.map(item => (
-              <NavItem key={item.key} active={tab === item.key} onClick={() => setTab(item.key)} label={item.label} icon={item.icon} />
-            ))}
-          </div>
+          {navItems.map(item => (
+            <NavItem key={item.key} active={tab === item.key} onClick={() => setTab(item.key)} label={item.label} icon={item.icon} />
+          ))}
         </nav>
       </aside>
 

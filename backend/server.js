@@ -88,6 +88,14 @@ app.listen(PORT, '0.0.0.0', () => {
     .then(() => console.log('[startup] users.avatar column ready'))
     .catch(err => console.error('[startup] users.avatar migration failed:', err.message));
 
+  pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(255)`)
+    .then(() => console.log('[startup] users.password_reset_token column ready'))
+    .catch(err => console.error('[startup] users.password_reset_token migration failed:', err.message));
+
+  pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ`)
+    .then(() => console.log('[startup] users.password_reset_expires column ready'))
+    .catch(err => console.error('[startup] users.password_reset_expires migration failed:', err.message));
+
   pool.query(`ALTER TABLE students ADD COLUMN IF NOT EXISTS phone VARCHAR(50)`)
     .then(() => console.log('[startup] students.phone column ready'))
     .catch(err => console.error('[startup] students.phone migration failed:', err.message));
