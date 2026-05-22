@@ -156,13 +156,6 @@ NEXT_PUBLIC_API_URL=http://localhost:4000
 | **File upload** | multer — PDF/JPG/PNG only, 10 MB max, timestamp-renamed, stored outside web root |
 | **XSS** | React inherently escapes all output; no `dangerouslySetInnerHTML` on user data |
 
-### To-do for production
-
-- Enforce HTTPS at reverse proxy (nginx/Caddy) with HSTS
-- Set `Secure; HttpOnly; SameSite=Strict` cookie attributes (currently token is stored in localStorage — migrate to httpOnly cookie for prod)
-- Rotate `JWT_SECRET` and use a secrets manager (e.g., AWS Secrets Manager)
-- Add audit logging for sensitive actions (account approval, deletion, report export)
-
 ---
 
 ## API Endpoints
